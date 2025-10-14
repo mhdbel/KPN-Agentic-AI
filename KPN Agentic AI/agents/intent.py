@@ -1,5 +1,9 @@
+from copy import deepcopy
+
 from config import llm
 from langchain.prompts import PromptTemplate
+
+from agents.utils import get_latest_user_message
 
 class CustomerIntentAgent:
     def __init__(self):
@@ -19,7 +23,7 @@ class CustomerIntentAgent:
         )
 
     def execute(self, state):
-        user_query = state["messages"][-1].content
+        user_query = get_latest_user_message(state) or state["messages"][-1].content
         current_intent = state.get("intent", {"budget": None, "brand": None, "features": []})
 
         chain = self.prompt | llm
@@ -33,5 +37,6 @@ class CustomerIntentAgent:
 
         return {
             "messages": [("intent_agent", f"Updated intent: {new_intent}")],
-            "intent": new_intent
+            "intent": new_intent,
+            "results": deepcopy(state.get("results", {})),
         }

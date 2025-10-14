@@ -1,3 +1,5 @@
+import json
+
 from config import llm
 from langchain.prompts import PromptTemplate
 
@@ -21,10 +23,11 @@ class SummaryAgent:
     def execute(self, state):
         tasks = ", ".join(state.get("tasks", []))
         results = state.get("results", {})
+        serialized_results = json.dumps(results, ensure_ascii=False)
 
         chain = self.prompt | llm
         summary = chain.invoke({
-            "results": str(results),
+            "results": serialized_results,
             "tasks": tasks
         }).content.strip()
 

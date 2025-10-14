@@ -1,0 +1,42 @@
+[
+  {
+    "product_name": "Samsung Galaxy S24",
+    "brand": "Samsung",
+    "price": 899,
+    "monthly_price": 38,
+    "contract_type": "24m",
+    "features": ["200MP camera", "5G", "1TB storage option"],
+    "kpn_exclusive": false,
+    "description": "Flagship Samsung Galaxy S24 with pro-grade camera and bright AMOLED display tailored for KPN unlimited plans."
+  },
+  {
+    "product_name": "Samsung Galaxy A55",
+    "brand": "Samsung",
+    "price": 499,
+    "monthly_price": 22,
+    "contract_type": "24m",
+    "features": ["64MP camera", "Long battery", "IP67"],
+    "kpn_exclusive": true,
+    "description": "Mid-range Samsung Galaxy A55 bundled with KPN exclusive trade-in discount and extra data boost."
+  },
+  {
+    "product_name": "Apple iPhone 15",
+    "brand": "Apple",
+    "price": 969,
+    "monthly_price": 42,
+    "contract_type": "24m",
+    "features": ["48MP camera", "Dynamic Island", "USB-C"],
+    "kpn_exclusive": false,
+    "description": "Apple iPhone 15 with Dynamic Island, ideal for KPN unlimited plans and AppleCare bundle."
+  },
+  {
+    "product_name": "Google Pixel 8",
+    "brand": "Google",
+    "price": 799,
+    "monthly_price": 34,
+    "contract_type": "24m",
+    "features": ["Tensor G3", "Night Sight", "AI editing"],
+    "kpn_exclusive": true,
+    "description": "Google Pixel 8 with advanced AI photography bundled with KPN safe internet add-on."
+  }
+]
