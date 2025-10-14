@@ -1,5 +1,10 @@
+import json
+
 from config import llm
 from langchain.prompts import PromptTemplate
+
+
+VALID_TASKS = {"product_search", "comparison", "deal_advisor"}
 
 class PlannerAgent:
     def __init__(self):
@@ -22,10 +27,36 @@ class PlannerAgent:
         chain = self.prompt | llm
         response = chain.invoke({"intent": str(intent)}).content.strip()
 
-        # Parse tasks safely
-        try:
-            tasks = eval(response) if response.startswith("[") else ["product_search"]
-        except Exception:
-            tasks = ["product_search"]
+        tasks = self._parse_tasks(response)
+        previous_tasks = state.get("tasks", [])
+        current_index = state.get("current_task", 0)
 
-        return {"tasks": tasks}
+        if tasks != previous_tasks:
+            current_index = 0
+        elif current_index >= len(tasks):
+            current_index = len(tasks)
+
+        return {"tasks": tasks, "current_task": current_index}
+
+    def _parse_tasks(self, llm_response: str) -> list:
+        """Parse the planner output and validate against supported tasks."""
+
+        try:
+            candidate = json.loads(llm_response)
+        except json.JSONDecodeError:
+            candidate = None
+
+        if not isinstance(candidate, list):
+            candidate = ["product_search"]
+
+        cleaned = []
+        for task in candidate:
+            if isinstance(task, str):
+                task_name = task.strip()
+                if task_name in VALID_TASKS and task_name not in cleaned:
+                    cleaned.append(task_name)
+
+        if not cleaned:
+            cleaned = ["product_search"]
+
+        return cleaned

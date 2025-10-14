@@ -60,13 +60,9 @@ def build_agentic_graph():
         }
     )
 
-    # After each task, increment index and decide next
-    def task_done(state: State):
-        return {"current_task": state.get("current_task", 0) + 1}
-
-    workflow.add_edge("product_search", "planner", condition=task_done)
-    workflow.add_edge("comparison", "planner", condition=task_done)
-    workflow.add_edge("deal_advisor", "planner", condition=task_done)
+    workflow.add_edge("product_search", "planner")
+    workflow.add_edge("comparison", "planner")
+    workflow.add_edge("deal_advisor", "planner")
 
     # Summary → END
     workflow.add_edge("summary", END)

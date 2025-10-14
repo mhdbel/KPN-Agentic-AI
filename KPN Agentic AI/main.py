@@ -1,3 +1,7 @@
+from typing import Any, Dict, List
+
+from langchain_core.messages import BaseMessage
+
 from graph.workflow import build_agentic_graph
 from storage.persistence import PersistenceManager
 
@@ -9,7 +13,7 @@ class AgenticKPNChatbot:
 
     def chat(self, query: str, thread_id: str = "default") -> str:
         # Load past state
-        saved_state = self.persistence.load_state(thread_id)
+        self.persistence.load_state(thread_id)
 
         # Prepare input
         input_message = {"messages": [("user", query)]}
@@ -19,18 +23,18 @@ class AgenticKPNChatbot:
         response = self.graph.invoke(input_message, config)
 
         # Save new state (messages + results + tasks etc.)
-        new_state = {
-            "messages": response.get("messages", []),
-            "tasks": response.get("tasks", []),
-            "results": response.get("results", {}),
-            "intent": response.get("intent", {}),
-            "current_task": response.get("current_task", 0),
-        }
+        new_state = self._serialize_state(response)
         self.persistence.save_state(thread_id, new_state)
 
         # Extract last AI message (summary if completed)
         last_msg = response["messages"][-1]
-        return last_msg[1] if isinstance(last_msg, tuple) else str(last_msg)
+        if isinstance(last_msg, BaseMessage):
+            return last_msg.content
+        if isinstance(last_msg, tuple) and len(last_msg) == 2:
+            return str(last_msg[1])
+        if isinstance(last_msg, dict):
+            return str(last_msg.get("content", ""))
+        return str(last_msg)
 
     def resume(self, thread_id: str = "default") -> dict:
         """Return the saved session state for inspection or continuation"""
@@ -39,6 +43,34 @@ class AgenticKPNChatbot:
     def reset(self, thread_id: str = "default") -> None:
         """Clear session history"""
         self.persistence.clear_state(thread_id)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _serialize_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "messages": self._serialize_messages(state.get("messages", [])),
+            "tasks": state.get("tasks", []),
+            "results": state.get("results", {}),
+            "intent": state.get("intent", {}),
+            "current_task": state.get("current_task", 0),
+        }
+
+    @staticmethod
+    def _serialize_messages(messages: List[Any]) -> List[Dict[str, str]]:
+        serialized: List[Dict[str, str]] = []
+        for message in messages:
+            if isinstance(message, BaseMessage):
+                serialized.append({"role": message.type, "content": message.content})
+            elif isinstance(message, tuple) and len(message) == 2:
+                role, content = message
+                serialized.append({"role": str(role), "content": str(content)})
+            elif isinstance(message, dict):
+                role = message.get("type") or message.get("role") or "assistant"
+                serialized.append({"role": str(role), "content": str(message.get("content", ""))})
+            else:
+                serialized.append({"role": "assistant", "content": str(message)})
+        return serialized
 
 if __name__ == "__main__":
     bot = AgenticKPNChatbot()
