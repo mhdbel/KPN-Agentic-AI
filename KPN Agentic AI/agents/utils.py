@@ -3,18 +3,13 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from langchain_core.messages import BaseMessage
-
 
 def get_latest_user_message(state: Dict[str, Any]) -> str:
     """Extract the latest user utterance from the LangGraph state."""
 
     messages = state.get("messages", [])
     for message in reversed(messages):
-        if isinstance(message, BaseMessage):
-            if getattr(message, "type", "") in {"human", "user"}:
-                return message.content
-        elif isinstance(message, tuple) and len(message) == 2:
+        if isinstance(message, tuple) and len(message) == 2:
             role, content = message
             if role in {"user", "human"}:
                 return str(content)
@@ -22,6 +17,11 @@ def get_latest_user_message(state: Dict[str, Any]) -> str:
             role = message.get("type") or message.get("role")
             if role in {"user", "human"}:
                 return str(message.get("content", ""))
+        else:
+            role = getattr(message, "type", None)
+            content = getattr(message, "content", None)
+            if role in {"user", "human"} and content is not None:
+                return str(content)
     return ""
 
 

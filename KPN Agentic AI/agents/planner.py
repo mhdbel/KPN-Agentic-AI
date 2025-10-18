@@ -1,33 +1,48 @@
-import json
+"""Rule based planner for the agent workflow."""
 
-from config import llm
-from langchain.prompts import PromptTemplate
+from __future__ import annotations
+
+from typing import Dict, List
+
+from agents.utils import get_latest_user_message
+from config import DEAL_KEYWORDS
 
 
-VALID_TASKS = {"product_search", "comparison", "deal_advisor"}
+VALID_TASKS = ("product_search", "comparison", "deal_advisor")
+
 
 class PlannerAgent:
-    def __init__(self):
-        self.prompt = PromptTemplate(
-            input_variables=["intent"],
-            template=(
-                "You are the Planner Agent. Based on the user's intent, decide which tasks are needed.\n"
-                "Possible tasks:\n"
-                " - product_search (search KPN phones)\n"
-                " - comparison (compare KPN vs external market)\n"
-                " - deal_advisor (check KPN exclusive deals)\n\n"
-                "User intent:\n{intent}\n\n"
-                "Return a JSON list of tasks in the order they should run. "
-                "Example: [\"product_search\", \"comparison\"]"
-            )
-        )
+    """Decide which specialist agents should execute for the current query."""
 
-    def execute(self, state):
+    def execute(self, state: Dict) -> Dict:
+        tasks: List[str] = []
+        latest_query = (get_latest_user_message(state) or "").lower()
         intent = state.get("intent", {})
-        chain = self.prompt | llm
-        response = chain.invoke({"intent": str(intent)}).content.strip()
 
-        tasks = self._parse_tasks(response)
+        # Product search is always the primary task if we have a phone related query.
+        tasks.append("product_search")
+
+        comparison_keywords = ("compare", "versus", "vs", "difference")
+        if any(keyword in latest_query for keyword in comparison_keywords):
+            tasks.append("comparison")
+
+        # Trigger comparisons automatically if the intent already mentions
+        # multiple brands (e.g. Samsung vs iPhone) by checking for the word
+        # "and" between known brand mentions.
+        if " and " in latest_query and any(brand in latest_query for brand in ("samsung", "iphone", "apple", "pixel", "google", "oneplus")):
+            if "comparison" not in tasks:
+                tasks.append("comparison")
+
+        if any(keyword in latest_query for keyword in DEAL_KEYWORDS):
+            tasks.append("deal_advisor")
+
+        # If the customer intent already stores deal information we keep the
+        # advisor active for subsequent turns.
+        if intent and intent.get("features"):
+            if any("discount" in feature.lower() for feature in intent["features"]):
+                if "deal_advisor" not in tasks:
+                    tasks.append("deal_advisor")
+
         previous_tasks = state.get("tasks", [])
         current_index = state.get("current_task", 0)
 
@@ -37,26 +52,3 @@ class PlannerAgent:
             current_index = len(tasks)
 
         return {"tasks": tasks, "current_task": current_index}
-
-    def _parse_tasks(self, llm_response: str) -> list:
-        """Parse the planner output and validate against supported tasks."""
-
-        try:
-            candidate = json.loads(llm_response)
-        except json.JSONDecodeError:
-            candidate = None
-
-        if not isinstance(candidate, list):
-            candidate = ["product_search"]
-
-        cleaned = []
-        for task in candidate:
-            if isinstance(task, str):
-                task_name = task.strip()
-                if task_name in VALID_TASKS and task_name not in cleaned:
-                    cleaned.append(task_name)
-
-        if not cleaned:
-            cleaned = ["product_search"]
-
-        return cleaned

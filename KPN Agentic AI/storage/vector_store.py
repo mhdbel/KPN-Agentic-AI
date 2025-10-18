@@ -1,20 +1,19 @@
-"""Utilities for loading curated product data into lightweight FAISS vector stores."""
+"""In-memory product search utilities without external dependencies."""
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional
+import re
+from dataclasses import dataclass, field
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from langchain.docstore.document import Document
-from langchain_community.embeddings import FakeEmbeddings
-from langchain_community.vectorstores import FAISS
+
+def _tokenize(text: str) -> List[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
 
 
 @dataclass
 class ProductRecord:
-    """Normalized representation of a single catalog entry."""
-
     product_name: str
     brand: str
     price: float
@@ -24,16 +23,15 @@ class ProductRecord:
     kpn_exclusive: bool = False
     features: Optional[List[str]] = None
     source: str = "external"
+    _tokens: Sequence[str] = field(default_factory=list, init=False, repr=False)
 
     @classmethod
     def from_payload(cls, payload: Dict, source: str) -> "ProductRecord":
-        """Create a record from a raw ingestion payload."""
-
         features = payload.get("features") or []
         if isinstance(features, str):
             features = [features]
 
-        return cls(
+        record = cls(
             product_name=str(payload.get("product_name", "")),
             brand=str(payload.get("brand", "")),
             price=float(payload.get("price", 0)),
@@ -44,82 +42,138 @@ class ProductRecord:
             features=[str(feature) for feature in features],
             source=source,
         )
+        record._tokens = _tokenize(record.search_blob)
+        return record
 
-    def to_document(self) -> Document:
-        """Convert the record into a LangChain document for vector indexing."""
-
-        content_sections = [self.product_name, self.brand, self.description]
+    @property
+    def search_blob(self) -> str:
+        sections = [self.product_name, self.brand, self.description]
         if self.features:
-            content_sections.append("Features: " + ", ".join(self.features))
+            sections.extend(self.features)
         if self.contract_type:
-            content_sections.append(f"Contract: {self.contract_type}")
+            sections.append(self.contract_type)
         if self.monthly_price:
-            content_sections.append(f"Monthly price: €{self.monthly_price}")
+            sections.append(f"monthly {self.monthly_price}")
+        return " ".join(section for section in sections if section)
 
-        page_content = " \n".join(section for section in content_sections if section)
-
-        metadata = {
+    def to_dict(self) -> Dict[str, object]:
+        return {
             "product_name": self.product_name,
             "brand": self.brand,
             "price": self.price,
-            "contract_type": self.contract_type or "",
             "monthly_price": self.monthly_price or 0,
+            "contract_type": self.contract_type or "",
             "kpn_exclusive": self.kpn_exclusive,
             "features": self.features or [],
             "source": self.source,
             "description": self.description,
         }
-        return Document(page_content=page_content, metadata=metadata)
+
+
+class SimpleVectorStore:
+    """Minimal semantic-ish search based on token overlap and heuristics."""
+
+    def __init__(self, records: Iterable[ProductRecord]):
+        self.records: List[ProductRecord] = list(records)
+
+    def search(self, query: str, k: int = 3) -> List[Tuple[Dict[str, object], float]]:
+        query_tokens = _tokenize(query)
+        if not query_tokens:
+            return []
+
+        query_set = set(query_tokens)
+        results: List[Tuple[Dict[str, object], float]] = []
+
+        for record in self.records:
+            if not record.product_name:
+                continue
+
+            token_overlap = len(query_set.intersection(record._tokens))
+            brand_match = 1 if record.brand.lower() in query_set else 0
+
+            score = token_overlap + brand_match
+
+            # Budget awareness: if the query includes a numeric limit prefer
+            # devices under that price ceiling.
+            budget = _extract_budget(query_tokens)
+            if budget and record.price <= budget:
+                score += 2
+
+            # Promote exclusive deals when searching the KPN store.
+            if record.kpn_exclusive:
+                score += 0.5
+
+            if score == 0:
+                continue
+
+            results.append((record.to_dict(), float(score)))
+
+        results.sort(key=lambda item: (-item[1], item[0].get("price", 0)))
+        return results[:k]
+
+
+def _extract_budget(tokens: Sequence[str]) -> Optional[int]:
+    for token in tokens:
+        if token.isdigit():
+            try:
+                value = int(token)
+            except ValueError:
+                continue
+            if 100 <= value <= 5000:
+                return value
+    return None
 
 
 class VectorStoreManager:
-    """Loads catalog data and provides FAISS-backed semantic search stores."""
+    """Loads the curated datasets and exposes lightweight search helpers."""
 
     def __init__(self, data_dir: str = os.path.join(os.path.dirname(__file__), "..", "data")):
         self.data_dir = os.path.abspath(data_dir)
-        self.embedding = FakeEmbeddings(size=1536)
-        self.kpn_vector_store: Optional[FAISS] = None
-        self.external_vector_store: Optional[FAISS] = None
-        self.hybrid_vector_store: Optional[FAISS] = None
+        self.kpn_store: SimpleVectorStore | None = None
+        self.external_store: SimpleVectorStore | None = None
+        self.hybrid_store: SimpleVectorStore | None = None
         self.refresh()
 
-    # ------------------------------------------------------------------
-    # Ingestion helpers
-    # ------------------------------------------------------------------
     def refresh(self) -> None:
-        """Load product datasets and rebuild the FAISS indexes."""
+        kpn_records = self._load_records("kpn_products.json", source="kpn")
+        external_records = self._load_records("external_products.json", source="external")
 
-        kpn_docs = self._load_documents("kpn_products.json", source="kpn")
-        external_docs = self._load_documents("external_products.json", source="external")
+        self.kpn_store = SimpleVectorStore(kpn_records)
+        self.external_store = SimpleVectorStore(external_records)
+        self.hybrid_store = SimpleVectorStore([*kpn_records, *external_records])
 
-        self.kpn_vector_store = self._build_store(kpn_docs)
-        self.external_vector_store = self._build_store(external_docs)
-        self.hybrid_vector_store = self._build_store(kpn_docs + external_docs)
-
-    def _load_documents(self, filename: str, source: str) -> List[Document]:
+    def _load_records(self, filename: str, source: str) -> List[ProductRecord]:
         path = os.path.join(self.data_dir, filename)
         if not os.path.exists(path):
             return []
 
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
 
-        documents = []
-        for raw_record in payload:
-            record = ProductRecord.from_payload(raw_record, source=source)
-            if not record.product_name:
-                continue
-            documents.append(record.to_document())
-        return documents
+        records: List[ProductRecord] = []
+        for raw in payload:
+            record = ProductRecord.from_payload(raw, source=source)
+            if record.product_name:
+                records.append(record)
+        return records
 
-    def _build_store(self, documents: Iterable[Document]) -> Optional[FAISS]:
-        docs = list(documents)
-        if not docs:
-            return None
-        return FAISS.from_documents(docs, self.embedding)
+    # Convenience wrappers -------------------------------------------------
+    def search_kpn(self, query: str, k: int = 3) -> List[Tuple[Dict[str, object], float]]:
+        if not self.kpn_store:
+            return []
+        return self.kpn_store.search(query, k=k)
+
+    def search_external(self, query: str, k: int = 3) -> List[Tuple[Dict[str, object], float]]:
+        if not self.external_store:
+            return []
+        return self.external_store.search(query, k=k)
+
+    def search_hybrid(self, query: str, k: int = 6) -> List[Tuple[Dict[str, object], float]]:
+        if not self.hybrid_store:
+            return []
+        return self.hybrid_store.search(query, k=k)
 
 
-# Single shared instance used by the agents and tools
 vector_store_manager = VectorStoreManager()
 
 __all__ = ["VectorStoreManager", "vector_store_manager"]
