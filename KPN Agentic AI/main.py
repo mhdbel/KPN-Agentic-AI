@@ -27,8 +27,7 @@ class AgenticKPNChatbot:
     def resume(self, thread_id: str = "default") -> dict:
         """Return the saved session state for inspection or continuation"""
         return self.persistence.load_state(thread_id)
-
-    def reset(self, thread_id: str = "default") -> None:
+      def reset(self, thread_id: str = "default") -> None:
         """Clear session history"""
         self.persistence.clear_state(thread_id)
 
@@ -57,7 +56,6 @@ class AgenticKPNChatbot:
             else:
                 serialized.append({"role": "assistant", "content": str(message)})
         return serialized
-
 if __name__ == "__main__":
     bot = AgenticKPNChatbot()
 
