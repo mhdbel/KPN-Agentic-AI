@@ -1,0 +1,30 @@
+[
+  {
+    "product_name": "Samsung Galaxy S24 Ultra",
+    "brand": "Samsung",
+    "price": 1199,
+    "features": ["200MP camera", "S-Pen", "Adaptive refresh"],
+    "description": "Unlocked Galaxy S24 Ultra with bundled Google One promotion available from Dutch electronics retailers."
+  },
+  {
+    "product_name": "OnePlus 12",
+    "brand": "OnePlus",
+    "price": 949,
+    "features": ["Snapdragon 8 Gen 3", "50W wireless", "Hasselblad camera"],
+    "description": "OnePlus 12 flagship with Hasselblad tuned camera offered by Bol.com and Coolblue."
+  },
+  {
+    "product_name": "Apple iPhone 15",
+    "brand": "Apple",
+    "price": 969,
+    "features": ["48MP camera", "USB-C"],
+    "description": "Unlocked iPhone 15 sold across Dutch market without carrier incentives."
+  },
+  {
+    "product_name": "Google Pixel 8a",
+    "brand": "Google",
+    "price": 549,
+    "features": ["AI photo tools", "7 years updates"],
+    "description": "Google Pixel 8a mid-range phone sold through retailers with long-term software support."
+  }
+]

@@ -1,24 +1,40 @@
-from config import llm
-from langchain.prompts import PromptTemplate
+"""Agent that surfaces KPN catalogue matches for the captured intent."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Dict
+
+from agents.utils import intent_to_search_query
+from tools.search_tools import search_kpn_products
+
 
 class ProductSearchAgent:
-    def __init__(self):
-        self.prompt = PromptTemplate(
-            input_variables=["intent"],
-            template=(
-                "You are the Product Search Agent. "
-                "Search KPN’s phone catalog based on the user’s intent:\n{intent}\n\n"
-                "Return the best matches with name, price, and key features."
-            )
-        )
-
-    def execute(self, state):
+    def execute(self, state: Dict) -> Dict:
         intent = state.get("intent", {})
-        chain = self.prompt | llm
-        response = chain.invoke({"intent": str(intent)}).content.strip()
+        query = intent_to_search_query(intent)
+        rag_response = search_kpn_products(query)
 
-        # Save structured output
-        results = state.get("results", {})
-        results["product_search"] = response
+        summary_lines = ["📱 KPN product suggestions:"]
+        if rag_response["items"]:
+            for item in rag_response["items"]:
+                line = f"- {item['product_name']} ({item['brand']}) – €{item['price']}"
+                if item.get("features"):
+                    line += f" | Features: {', '.join(item['features'][:3])}"
+                summary_lines.append(line)
+        else:
+            summary_lines.append("No matching devices were found in the KPN catalogue.")
 
-        return {"messages": [("product_search", response)], "results": results}
+        message = "\n".join(summary_lines)
+
+        results = deepcopy(state.get("results", {}))
+        results["product_search"] = {
+            "query": query,
+            "matches": rag_response["items"],
+        }
+
+        return {
+            "messages": [("product_search", message)],
+            "results": results,
+            "current_task": state.get("current_task", 0) + 1,
+        }
